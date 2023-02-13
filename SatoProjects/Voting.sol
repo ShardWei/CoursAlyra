@@ -167,7 +167,7 @@ contract Voting is Ownable {
     }
     
 
-    // winner post
+    // Winner post
     function getWinner() external view returns (string memory) {
         require(currentStatus == WorkflowStatus.VotesTallied, "Time isn't votetallied");
         return proposals[winningProposalId].description;
