@@ -34,131 +34,143 @@ contract Voting is Ownable {
     // VotingSessionStarted ---------- 3
     // VotingSessionEnded ------------ 4
     // VotesTallied ------------------ 5
-    WorkflowStatus defaultStatus = WorkflowStatus.RegisteringVoters;
+    
     
     
     //event available for Deployed Contracts
     event VoterRegistered(address voterAddress); //The owner registers a whitelist of voters identified by their Ethereum address.
     event WorkflowStatusChange(WorkflowStatus previousStatus, WorkflowStatus newStatus); 
-    event ProposalsSessionStarted(); //The owner starts proposal recording session
     event ProposalRegistered(uint proposalId); //Registered voters are allowed to register their proposals while the registration session is active.
-    event ProposalsSessionEnded(); //The owner terminates the proposal recording session.
-    event VotingSessionStarted(); // The owner starts the voting session.
-    event Voted (address voter, uint proposalId); //Registered voters vote for their preferred proposal.
-    event VotingSessionEnded(); //The owner ends the voting session.
-    event VotesTallied(); // The owner counts the votes.
+    event Voted (address voterAddress, uint proposalId); //Registered voters vote for their preferred proposal.
+    
     
     
     mapping  (address => Voter) Votermap;
-    mapping (address => uint) votes;
     Proposal[] public proposals;
-    
     uint winningProposalId;
+    WorkflowStatus currentStatus; //to lighten the functions
 
 
-    // group of modifiers to limit repetitions
-    modifier Whitelisted(address _address) {
+    // to check if the address is registered
+    modifier Whitelisted() {
         require(Votermap[msg.sender].isRegistered, "This address is unlisted");
         _;
     }
-    
+    /**
+    *
+    *
+    *
+    *
+    */
 
-    modifier Unlisted(address _address) {
-        require(!Votermap[msg.sender].isRegistered, "This address is already whitelisted");
-        _;
+    // to check that the voter's action corresponds to the step chosen by the owner
+    function changeWorkflowStatus() private { 
+        emit WorkflowStatusChange(currentStatus, WorkflowStatus(uint(currentStatus) + 1));
+        currentStatus = WorkflowStatus(uint(currentStatus) + 1);
     }
-
-    
-    modifier singleVote(address _address) {   //one vote per address
-        require(!Votermap[msg.sender].hasVoted, "The voter has already voted");
-        _;
-    }
-    
-    modifier Status(WorkflowStatus status) {  // to check that the voter's action corresponds to the step chosen by the owner
-        require(defaultStatus == status, "Now, you can't do that, the owner may change the workflowStatus");
-        _;
-    }
-
-
 
 
     // Each voter can see the votes of others
-    function getVoter(address _address) public view returns (bool isRegistered,bool hasVoted,uint votedProposalId) {
+    function getVoter(address _address) external view returns (bool isRegistered,bool hasVoted,uint votedProposalId) {
         return (Votermap[_address].isRegistered,Votermap[_address].hasVoted,Votermap[_address].votedProposalId);
     }
 
+    // to check all proposals registered
+    function getProposals() external view Whitelisted returns (Proposal[] memory) {
+        return proposals;
+    }
+    /**
+    *
+    *
+    *
+    *
+    */
 
     // Voters Registration by the owner
-    function addWhitelist(address _address) public  Unlisted(_address) Status(WorkflowStatus.RegisteringVoters) onlyOwner {
+    function addWhitelist(address _address) external onlyOwner {
+        require(currentStatus == WorkflowStatus.RegisteringVoters, "Time isn't to registering voters");
+        require(!Votermap[_address].isRegistered, "This address is already whitelisted");
         Votermap[_address].isRegistered = true;
+        emit VoterRegistered(_address);
     }
-
-
+    /**
+    *
+    *
+    *
+    *
+    */
 
     // Proposal session
-    function startProposalRegistration() public onlyOwner Status(WorkflowStatus.RegisteringVoters) {
-        emit ProposalsSessionStarted();
-        emit WorkflowStatusChange(WorkflowStatus.RegisteringVoters, WorkflowStatus.ProposalsRegistrationStarted);
-        defaultStatus = WorkflowStatus.ProposalsRegistrationStarted;
+    function startProposalRegistration() external onlyOwner {
+        require(currentStatus == WorkflowStatus.RegisteringVoters, "Time isn't to registering voters");
+    changeWorkflowStatus();
     }
 
-     function addProposal (string memory _description) public Whitelisted(msg.sender) Status(WorkflowStatus.ProposalsRegistrationStarted) {
+    function addProposal (string calldata _description) external Whitelisted {
+        require(currentStatus == WorkflowStatus.ProposalsRegistrationStarted, "Time isn't to proposals registration");
         proposals.push(Proposal(_description, 0));
+        emit ProposalRegistered(proposals.length);
     }
 
-    function endProposalRegistration() public onlyOwner Status(WorkflowStatus.ProposalsRegistrationStarted) {
-        emit ProposalsSessionEnded();
-        emit WorkflowStatusChange(WorkflowStatus.ProposalsRegistrationStarted, WorkflowStatus.ProposalsRegistrationEnded);
-        defaultStatus = WorkflowStatus.ProposalsRegistrationEnded;
+    function endProposalRegistration() external onlyOwner {
+        require(currentStatus == WorkflowStatus.ProposalsRegistrationStarted, "Time isn't to proposals registration");
+        changeWorkflowStatus();
     }
-
-
+    /**
+    *
+    *
+    *
+    *
+    *
+    */
 
     // Voting session
 
-    function startVoting() public onlyOwner Status(WorkflowStatus.ProposalsRegistrationEnded) {
-        emit VotingSessionStarted();
-        emit WorkflowStatusChange(WorkflowStatus.ProposalsRegistrationEnded, WorkflowStatus.VotingSessionStarted);
-        defaultStatus = WorkflowStatus.VotingSessionStarted;
+    function startVoting() external onlyOwner {
+        require(currentStatus == WorkflowStatus.ProposalsRegistrationEnded, "Time isn't to proposals registration");
+        changeWorkflowStatus();
     }
 
 
-    function vote(uint _proposalId) public Whitelisted(msg.sender) singleVote(msg.sender) Status(WorkflowStatus.VotingSessionStarted) {
+    function vote(uint _proposalId) external Whitelisted {
+        require(currentStatus == WorkflowStatus.VotingSessionStarted, "Time isn't to vote");
+        require(!Votermap[msg.sender].hasVoted, "The voter has already voted");//one vote per address
         Votermap[msg.sender].hasVoted = true;
         Votermap[msg.sender].votedProposalId = _proposalId;
-        proposals[_proposalId].voteCount++;        
+        proposals[_proposalId].voteCount++;      
         emit Voted(msg.sender, _proposalId);
     }
 
-    function endVoting() public onlyOwner Status(WorkflowStatus.VotingSessionStarted) {
-        emit VotingSessionEnded();
-        emit WorkflowStatusChange(WorkflowStatus.VotingSessionStarted, WorkflowStatus.VotingSessionEnded);
-        defaultStatus = WorkflowStatus.VotingSessionEnded;
+    function endVoting() external onlyOwner {
+        require(currentStatus == WorkflowStatus.VotingSessionStarted, "Time isn't to vote");
+        changeWorkflowStatus();
     }
-
-
-
+    /*
+    *
+    *
+    *
+    *
+    *
+    */
 
     // calculate vote number by proposal
-    function countVotes() public onlyOwner Status(WorkflowStatus.VotingSessionEnded) {
-        emit VotesTallied();
-        emit WorkflowStatusChange(WorkflowStatus.VotingSessionEnded, WorkflowStatus.VotesTallied);
-        defaultStatus = WorkflowStatus.VotesTallied;
+    function countVotes() external onlyOwner{
+        require(currentStatus == WorkflowStatus.VotingSessionEnded, "Time isn't to vote");
 
-        uint winningCount = 0;
         for (uint i = 0; i < proposals.length; i++) {
-            if (proposals[i].voteCount > winningCount) {
-                winningCount = proposals[i].voteCount;
+            if (proposals[i].voteCount > winningProposalId) {
+                winningProposalId = proposals[i].voteCount;
                 winningProposalId = i;
             }
         }
+        changeWorkflowStatus();
     }
     
 
-
     // winner post
-    function getWinner() public view Status(WorkflowStatus.VotesTallied) returns (string memory) {
+    function getWinner() external view returns (string memory) {
+        require(currentStatus == WorkflowStatus.VotesTallied, "Time isn't votetallied");
         return proposals[winningProposalId].description;
     }
-
+    
 }
